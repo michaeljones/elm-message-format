@@ -30,5 +30,17 @@ all =
                                 , Str " ABC"
                                 ]
                             )
+            , test "With two variables" <|
+                \() ->
+                    Expect.equal (parse "abc {bob} something {jim} ABC") <|
+                        Ok
+                            (Phrase
+                                [ Str "abc "
+                                , Variable "bob"
+                                , Str " something "
+                                , Variable "jim"
+                                , Str " ABC"
+                                ]
+                            )
             ]
         ]
