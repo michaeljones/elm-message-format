@@ -1,4 +1,4 @@
-module Main exposing (..)
+module Tests.Parser exposing (..)
 
 import Expect
 import Message exposing (..)
@@ -106,7 +106,7 @@ all =
                         string =
                             "{num_files, plural, "
                                 ++ "=0{a}"
-                                ++ "=1{b}"
+                                ++ "=1 {b} "
                                 ++ "other{c}}"
                     in
                     Expect.equal (parseWith plural string) <|
@@ -117,6 +117,23 @@ all =
                                 , IndexedOption 1 (Phrase [ Str "b" ])
                                 , OtherOption (Phrase [ Str "c" ])
                                 ]
+            , test "pure example with 'one'" <|
+                \() ->
+                    let
+                        string =
+                            "{num_files, plural, "
+                                ++ "=0{a}"
+                                ++ "one {b} "
+                                ++ "other{c}}"
+                    in
+                    Expect.equal (parseWith plural string) <|
+                        Ok <|
+                            Plural
+                                "num_files"
+                                [ IndexedOption 0 (Phrase [ Str "a" ])
+                                , OneOption (Phrase [ Str "b" ])
+                                , OtherOption (Phrase [ Str "c" ])
+                                ]
             , test "example with nested variable" <|
                 \() ->
                     let
@@ -125,6 +142,23 @@ all =
                                 ++ "=0{a {x} a}"
                                 ++ "=1{b {y}}"
                                 ++ "other{{z} c}}"
+                    in
+                    Expect.equal (parseWith plural string) <|
+                        Ok <|
+                            Plural
+                                "num_files"
+                                [ IndexedOption 0 (Phrase [ Str "a ", Variable "x", Str " a" ])
+                                , IndexedOption 1 (Phrase [ Str "b ", Variable "y" ])
+                                , OtherOption (Phrase [ Variable "z", Str " c" ])
+                                ]
+            , test "multiline example" <|
+                \() ->
+                    let
+                        string =
+                            """{num_files, plural,
+                                =0 {a {x} a}
+                                =1 {b {y}}
+                                other {{z} c}}"""
                     in
                     Expect.equal (parseWith plural string) <|
                         Ok <|

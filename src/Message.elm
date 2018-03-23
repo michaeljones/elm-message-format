@@ -1,6 +1,7 @@
 module Message exposing (..)
 
 import Char
+import Dict exposing (Dict)
 import Parser exposing (..)
 
 
@@ -22,6 +23,7 @@ type NumberDisplay
 
 type PluralOption
     = IndexedOption Int Message
+    | OneOption Message
     | OtherOption Message
 
 
@@ -68,6 +70,18 @@ plural =
                 (succeed IndexedOption
                     |. symbol "="
                     |= int
+                    |. spaces
+                    |. symbol "{"
+                    |= lazy (\_ -> phrase)
+                )
+                (symbol "}")
+
+        oneOption =
+            delayedCommitMap
+                (\a b -> a)
+                (succeed OneOption
+                    |. keyword "one"
+                    |. spaces
                     |. symbol "{"
                     |= lazy (\_ -> phrase)
                 )
@@ -78,6 +92,7 @@ plural =
                 (\a b -> a)
                 (succeed OtherOption
                     |. keyword "other"
+                    |. spaces
                     |. symbol "{"
                     |= lazy (\_ -> phrase)
                 )
@@ -86,8 +101,10 @@ plural =
         option =
             oneOf
                 [ indexedOption
+                , oneOption
                 , otherOption
                 ]
+                |. spaces
     in
     delayedCommitMap
         (\a b -> a)
@@ -141,13 +158,6 @@ text char =
         && (char /= '}')
 
 
-
--- Char.isLower char
---     || Char.isUpper char
---     || (char == ' ')
---     || List.member char ['"']
-
-
 variableToken : Char -> Bool
 variableToken char =
     Char.isLower char
@@ -157,7 +167,11 @@ variableToken char =
 
 spaces : Parser ()
 spaces =
-    ignore zeroOrMore (\c -> c == ' ')
+    ignore zeroOrMore (\c -> c == ' ' || c == '\n')
+
+
+
+-- Parse
 
 
 parse : String -> Result Parser.Error Message
@@ -168,3 +182,82 @@ parse string =
 parseWith : Parser Message -> String -> Result Parser.Error Message
 parseWith parser string =
     run parser string
+
+
+
+-- Format
+
+
+type Error
+    = MissingVariableError String
+    | PluralKeyNotAnIntError String
+    | PluralNoMatchingOptionError
+    | ParserError Parser.Error
+
+
+formatMessage : Dict String String -> Message -> Result Error String
+formatMessage dict message =
+    case message of
+        Phrase messages ->
+            List.map (formatMessage dict) messages
+                |> combineResults
+                |> Result.map String.concat
+
+        Str string ->
+            Ok string
+
+        Variable key ->
+            Dict.get key dict |> Result.fromMaybe (MissingVariableError key)
+
+        Number variable display ->
+            Dict.get variable dict |> Result.fromMaybe (MissingVariableError variable)
+
+        Plural variable options ->
+            Dict.get variable dict
+                |> Result.fromMaybe (MissingVariableError variable)
+                |> Result.andThen (\string -> String.toInt string |> Result.mapError (\_ -> PluralKeyNotAnIntError string))
+                |> Result.andThen
+                    (\targetIndex ->
+                        options
+                            |> List.filter
+                                (\option ->
+                                    case option of
+                                        IndexedOption index _ ->
+                                            index == targetIndex
+
+                                        OneOption _ ->
+                                            targetIndex == 1
+
+                                        OtherOption _ ->
+                                            True
+                                )
+                            |> List.take 1
+                            |> List.head
+                            |> Result.fromMaybe PluralNoMatchingOptionError
+                            |> Result.andThen
+                                (\option ->
+                                    case option of
+                                        IndexedOption _ submessage ->
+                                            formatMessage dict submessage
+
+                                        OneOption submessage ->
+                                            formatMessage dict submessage
+
+                                        OtherOption submessage ->
+                                            formatMessage dict submessage
+                                )
+                    )
+
+
+formatString : Dict String String -> String -> Result Error String
+formatString dict string =
+    parseWith phrase string
+        |> Result.mapError ParserError
+        |> Result.andThen (formatMessage dict)
+
+
+{-| Taken from Result.Extra
+-}
+combineResults : List (Result x a) -> Result x (List a)
+combineResults =
+    List.foldr (Result.map2 (::)) (Ok [])
